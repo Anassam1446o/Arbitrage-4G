@@ -38,22 +38,36 @@ def _normalize(text) -> str:
 
 
 def _strip_ftto_prefix(offer: str) -> str:
-    return re.sub(r"^ftt[oe]\s+", "", offer.strip(), flags=re.IGNORECASE)
+    text = re.sub(r"^ftt[oe]\s+", "", offer.strip(), flags=re.IGNORECASE)
+    # "Burst" est un qualificatif de gamme (débit garanti + rafale), pas
+    # une partie du nom de l'offre/opérateur : à ignorer pour le matching.
+    text = re.sub(r"\bburst\b", " ", text, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def load_price_table(file_path: str) -> dict[str, object]:
-    """Renvoie {libellé_normalisé_offre: prix (nombre ou "sur devis")}
-    pour le palier FTTO 20 Mbps uniquement."""
+    """Renvoie {libellé_normalisé_offre: prix (nombre ou "sur devis")}.
+
+    Les offres FTTO standard n'ont un prix qu'au palier "FTTO 20 Mbps"
+    (consigne métier). Les offres Burst n'existent pas à ce palier — ce
+    sont des lignes à part dans le BPU (ex: "FTTO 5 Mbps burst 100 Mbps"),
+    un seul prix fixe par offre quel que soit le débit garanti : on les
+    garde toutes, sans filtre de palier."""
     df = pd.read_excel(file_path, sheet_name=0, header=None)
     prices: dict[str, object] = {}
     for _, row in df.iterrows():
         type_acces = row.get(_COL_TYPE_ACCES)
-        if not isinstance(type_acces, str) or _normalize(type_acces) != FIXED_DEBIT_LABEL:
+        if not isinstance(type_acces, str):
+            continue
+        normalized_type = _normalize(type_acces)
+        if normalized_type != FIXED_DEBIT_LABEL and "burst" not in normalized_type:
             continue
         commentaire = row.get(_COL_COMMENTAIRE)
         if not isinstance(commentaire, str) or not commentaire.strip():
             continue
-        prices[_normalize(commentaire)] = row.get(_COL_ABONNEMENT)
+        key = _normalize(commentaire)
+        if key not in prices:  # priorité à la première ligne rencontrée (palier 20 Mbps en tête du fichier)
+            prices[key] = row.get(_COL_ABONNEMENT)
     return prices
 
 
@@ -81,11 +95,12 @@ def find_price(price_table: dict[str, object], offer_name: Optional[str]) -> tup
     return None, None
 
 
-def format_price(raw_price: object) -> Optional[str]:
+def format_price(raw_price: object, is_burst: bool = False) -> Optional[str]:
     if raw_price is None:
         return None
     if isinstance(raw_price, (int, float)):
-        return f"{raw_price:g} € HT/mois (palier 20 Mbps)"
+        palier = "offre Burst, prix fixe" if is_burst else "palier 20 Mbps"
+        return f"{raw_price:g} € HT/mois ({palier})"
     return str(raw_price)
 
 
@@ -109,7 +124,8 @@ def build_priced_offers(eligibility, price_file_path: str):
     for offer_name in eligibility.offres_eligibles_brutes:
         raw_price, _matched = find_price(table, offer_name)
         prix_eur = raw_price if isinstance(raw_price, (int, float)) else None
-        prix_detail = format_price(raw_price) or "prix non trouvé dans le BPU"
+        is_burst = "burst" in offer_name.lower()
+        prix_detail = format_price(raw_price, is_burst=is_burst) or "prix non trouvé dans le BPU"
         priced.append(FttoOffreChiffree(offre=offer_name, prix_eur=prix_eur, prix_detail=prix_detail))
 
     priced.sort(key=lambda o: (o.prix_eur is None, o.prix_eur if o.prix_eur is not None else 0))
