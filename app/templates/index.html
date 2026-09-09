@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Arbitrage 4G</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Arbitrage 4G</h1>
+    <p class="subtitle">Recommandation Starlink / FTTO / autre opérateur 4G à partir des rapports d'audit et de MES.</p>
+  </header>
+
+  <main>
+    {% if erreur %}
+      <div class="alert alert-error">{{ erreur }}</div>
+    {% endif %}
+
+    <form action="/analyser" method="post" enctype="multipart/form-data" class="form">
+      <fieldset>
+        <legend>Rapports du site</legend>
+
+        <label>
+          Rapport d'audit (prévisite) — PDF ou HTML
+          <input type="file" name="fichier_audit" accept=".pdf,.html,.htm">
+        </label>
+
+        <label>
+          Rapport de Mise en Service (MES) — PDF ou HTML <span class="required">*</span>
+          <input type="file" name="fichier_mes" accept=".pdf,.html,.htm" required>
+        </label>
+
+        <label>
+          Fichier Excel d'éligibilité FTTO (optionnel)
+          <input type="file" name="fichier_ftto" accept=".xlsx,.xls,.csv">
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Critère Starlink</legend>
+        <p class="hint">Le toit du magasin est-il dégagé et appartient-il au magasin ? (souvent simple pour les
+          hypermarchés/Market, à vérifier pour les City/Express en copropriété)</p>
+        <div class="radio-group">
+          <label><input type="radio" name="toit_starlink" value="oui"> Oui</label>
+          <label><input type="radio" name="toit_starlink" value="non"> Non</label>
+          <label><input type="radio" name="toit_starlink" value="inconnu" checked> Je ne sais pas / laisser le programme déduire</label>
+        </div>
+      </fieldset>
+
+      <button type="submit">Analyser</button>
+    </form>
+  </main>
+</body>
+</html>

@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Résultat — Arbitrage 4G</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Arbitrage 4G</h1>
+  </header>
+
+  <main>
+    <a href="/" class="back-link">&larr; Nouvelle analyse</a>
+
+    <section class="reco reco-{{ reco.technologie }}">
+      <span class="badge">{{ reco.technologie.replace('_', ' ') }}</span>
+      <h2>{{ reco.resume }}</h2>
+      {% if reco.operateur_recommande %}
+        <p>Opérateur recommandé : <strong>{{ reco.operateur_recommande.upper() }}</strong>
+          {% if reco.prestataire_recommande %} (via {{ reco.prestataire_recommande }}){% endif %}</p>
+      {% endif %}
+      {% if reco.technologie == 'Starlink' %}
+        <p>Coût indicatif : <strong>{{ starlink_price }} €/mois</strong></p>
+      {% endif %}
+      {% if reco.details %}
+        <ul class="details">
+          {% for d in reco.details %}<li>{{ d }}</li>{% endfor %}
+        </ul>
+      {% endif %}
+      {% if toit_deduit_de_audit %}
+        <p class="note">Critère toit Starlink déduit de la réponse du rapport d'audit à
+          "peut-on installer une antenne extérieure ?" (proxy imparfait — à confirmer manuellement).</p>
+      {% endif %}
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <h3>Site</h3>
+        <table>
+          <tr><th>Adresse</th><td>{{ mes.adresse or audit.adresse or '—' }}</td></tr>
+          <tr><th>Code site</th><td>{{ mes.site_code or audit.site_code or '—' }}</td></tr>
+          {% if geo %}
+          <tr><th>Géocodage</th><td>{{ geo.label }} (score {{ '%.2f' % geo.score }})</td></tr>
+          {% else %}
+          <tr><th>Géocodage</th><td class="warn">Adresse non géocodée</td></tr>
+          {% endif %}
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>Rapport de MES ({{ mes.prestataire or 'prestataire inconnu' }})</h3>
+        <table>
+          <tr><th>Opérateur retenu</th><td>{{ mes.operateur_retenu or '—' }}</td></tr>
+          <tr><th>Antenne installée</th><td>{{ mes.antenne_installee }}{% if mes.type_antenne %} ({{ mes.type_antenne }}){% endif %}</td></tr>
+          <tr><th>Résultat intervention</th><td>{{ mes.resultat_intervention or '—' }}</td></tr>
+        </table>
+        {% if mes.lectures %}
+        <table>
+          <tr><th>Opérateur</th><th>RSRP</th><th>SNR</th><th>Qualité</th></tr>
+          {% for l in mes.lectures %}
+          <tr>
+            <td>{{ l.operateur }}</td>
+            <td>{{ l.rsrp_dbm if l.rsrp_dbm is not none else '—' }}</td>
+            <td>{{ l.snr_db if l.snr_db is not none else '—' }}</td>
+            <td>{{ l.qualite_signal or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </table>
+        {% endif %}
+      </div>
+
+      {% if audit.adresse or audit.lectures %}
+      <div class="card">
+        <h3>Rapport d'audit ({{ audit.prestataire or 'prestataire inconnu' }})</h3>
+        <table>
+          <tr><th>Antenne préconisée</th><td>{{ audit.antenne_preconisee }}{% if audit.type_antenne_preconisee %} ({{ audit.type_antenne_preconisee }}){% endif %}</td></tr>
+          <tr><th>Meilleur HNO (audit)</th><td>{{ audit.meilleur_hno_audit or '—' }}</td></tr>
+          <tr><th>Technologies existantes</th><td>{{ audit.technologies_existantes or '—' }}</td></tr>
+          <tr><th>Antenne extérieure autorisée</th><td>{{ audit.antenne_exterieure_autorisee if audit.antenne_exterieure_autorisee is not none else '—' }}</td></tr>
+        </table>
+        {% if audit.lectures %}
+        <table>
+          <tr><th>Opérateur</th><th>RSRP</th><th>SNR</th><th>Qualité</th></tr>
+          {% for l in audit.lectures %}
+          <tr>
+            <td>{{ l.operateur }}</td>
+            <td>{{ l.rsrp_dbm if l.rsrp_dbm is not none else '—' }}</td>
+            <td>{{ l.snr_db if l.snr_db is not none else '—' }}</td>
+            <td>{{ l.qualite_signal or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </table>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <div class="card">
+        <h3>Environnement radio ANFR</h3>
+        {% if not anfr_available %}
+          <p class="warn">Données ANFR indisponibles pour cette analyse.</p>
+        {% elif anfr_summary %}
+          <table>
+            <tr><th>Opérateur</th><th>Sites à proximité</th></tr>
+            {% for s in anfr_summary %}
+            <tr><td>{{ s.operateur }}</td><td>{{ s.nb_sites }}</td></tr>
+            {% endfor %}
+          </table>
+        {% else %}
+          <p>Aucun site recensé dans le rayon de recherche.</p>
+        {% endif %}
+      </div>
+
+      <div class="card">
+        <h3>Éligibilité FTTO</h3>
+        <table>
+          <tr><th>Trouvé dans le fichier</th><td>{{ ftto.trouve }}</td></tr>
+          <tr><th>Éligible</th><td>{{ ftto.eligible if ftto.eligible is not none else 'Inconnu' }}</td></tr>
+          {% if ftto.detail %}<tr><th>Détail</th><td>{{ ftto.detail }}</td></tr>{% endif %}
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
