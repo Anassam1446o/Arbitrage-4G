@@ -1,11 +1,19 @@
-"""Client pour l'API Open Data ANFR (portail "data4C", format OpenDataSoft
-Explore v2.1) : récupère les sites/antennes radio à proximité d'un point.
+"""Client pour l'API Open Data ANFR (API "records" v2.0, portail "d4c").
 
-Le schéma exact du dataset (noms de champs, id du dataset) n'a pas pu être
-vérifié en environnement de développement car l'accès réseau à data.anfr.fr
-y est bloqué. Les noms de champs par défaut (voir app/config.py) sont une
-best guess à confirmer une fois le programme exécuté avec un accès réseau
-normal — voir README, section "Vérifier le schéma ANFR".
+resource_id et noms de champs vérifiés à partir d'un appel réel et
+fonctionnel observé dans un projet tiers open-source
+(RealTux678/Generateur_ANFR, java/A_ANFR_Downloader.java) qui télécharge le
+dataset "observatoire_2g_3g_4g" en CSV :
+    https://data.anfr.fr/d4c/api/records/2.0/downloadfile/?format=csv
+      &refine.generation=4G&refine.generation=5G
+      &resource_id=88ef0887-6b0f-4d3f-8545-6d64c8f597da
+
+Ce module suppose qu'un endpoint JSON filtrable par géolocalisation existe
+sur le même préfixe records/2.0 (convention standard de ce type d'API) —
+seul ce point précis (chemin exact de la recherche géographique + forme de
+la réponse JSON) n'a pas pu être vérifié en environnement de développement
+(accès réseau à data.anfr.fr bloqué). Le resource_id et les noms de champs,
+eux, sont vérifiés (pas devinés). Voir README, section ANFR.
 """
 from __future__ import annotations
 
@@ -15,12 +23,10 @@ import requests
 
 from app.config import (
     ANFR_BASE_URL,
-    ANFR_DATASET_ID,
     ANFR_FIELD_GENERATION,
-    ANFR_FIELD_LAT,
-    ANFR_FIELD_LON,
     ANFR_FIELD_OPERATOR,
     ANFR_OPERATOR_LABELS,
+    ANFR_RESOURCE_ID,
     ANFR_SEARCH_RADIUS_M,
 )
 from app.models import AnfrSiteSummary
@@ -42,26 +48,30 @@ def fetch_nearby_sites(
     timeout: float = 10.0,
 ) -> list[dict]:
     """Interroge l'API ANFR et renvoie la liste brute des enregistrements
-    de sites radio dans le rayon donné. Renvoie [] si l'API est injoignable
-    (l'appelant doit alors traiter l'environnement radio ANFR comme
-    "indisponible", pas comme "aucune couverture")."""
-    url = f"{ANFR_BASE_URL}/{ANFR_DATASET_ID}/records"
-    where_clause = f"distance({ANFR_FIELD_LAT}, geom'POINT({lon} {lat})', {radius_m}m)"
+    (dicts de champs) de sites radio dans le rayon donné. Renvoie [] si
+    l'API est injoignable ou si le format de réponse est inattendu :
+    l'appelant doit alors traiter l'environnement radio ANFR comme
+    "indisponible", pas comme "aucune couverture"."""
+    url = f"{ANFR_BASE_URL}/search/"
+    params = {
+        "resource_id": ANFR_RESOURCE_ID,
+        "geofilter.distance": f"{lat},{lon},{radius_m}",
+        "rows": 100,
+    }
     if technology_filter:
-        where_clause += f" AND {ANFR_FIELD_GENERATION} LIKE '%{technology_filter}%'"
+        params[f"refine.{ANFR_FIELD_GENERATION}"] = technology_filter
 
     try:
-        response = requests.get(
-            url,
-            params={"where": where_clause, "limit": 100},
-            timeout=timeout,
-        )
+        response = requests.get(url, params=params, timeout=timeout)
         response.raise_for_status()
         data = response.json()
     except (requests.RequestException, ValueError):
         return []
 
-    return data.get("results", [])
+    records = data.get("records")
+    if records is None:
+        return []
+    return [r.get("fields", {}) for r in records if isinstance(r, dict)]
 
 
 def summarize_by_operator(records: list[dict]) -> list[AnfrSiteSummary]:
@@ -86,9 +96,10 @@ def get_radio_environment(
 ) -> tuple[list[AnfrSiteSummary], bool]:
     """Renvoie (résumé par opérateur, données_disponibles).
 
-    données_disponibles=False signifie que l'API n'a pas répondu : le moteur
-    de décision ne doit pas conclure à une absence de couverture dans ce cas,
-    seulement le signaler comme donnée manquante à vérifier manuellement.
+    données_disponibles=False signifie que l'API n'a pas répondu (ou dans
+    un format inattendu) : le moteur de décision ne doit pas conclure à une
+    absence de couverture dans ce cas, seulement le signaler comme donnée
+    manquante à vérifier manuellement.
     """
     records = fetch_nearby_sites(lat, lon, radius_m)
     if not records:

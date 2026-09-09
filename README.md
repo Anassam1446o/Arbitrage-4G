@@ -99,10 +99,19 @@ Adista, audit + MES pour chacun) dans `tests/fixtures/`.
 
 ## À vérifier avant mise en prod
 
-- **Schéma ANFR** : lancer `app/anfr_client.py` avec un accès réseau normal
-  sur une adresse connue, comparer avec ce que renvoie l'API, puis ajuster
-  dans `app/config.py` : `ANFR_DATASET_ID`, `ANFR_FIELD_OPERATOR`,
-  `ANFR_FIELD_LAT`, `ANFR_FIELD_LON`, `ANFR_FIELD_GENERATION`.
+- **Endpoint de recherche géographique ANFR** : le `resource_id` du
+  dataset ("observatoire_2g_3g_4g") et les noms de champs
+  (`adm_lb_nom`, `coordonnees`, `generation`, `sta_nm_anfr`) sont
+  **vérifiés** — repris d'un appel réel et fonctionnel
+  (`https://data.anfr.fr/d4c/api/records/2.0/downloadfile/...`) observé
+  dans le projet tiers open-source
+  [RealTux678/Generateur_ANFR](https://github.com/RealTux678/Generateur_ANFR)
+  (`java/A_ANFR_Downloader.java` et `A_Generateur_ANFR.java`). Ce qui reste
+  à confirmer une fois un accès réseau normal disponible : que
+  `.../records/2.0/search/` (utilisé ici avec `geofilter.distance` pour la
+  recherche par rayon) existe bien en plus de `.../downloadfile/` et
+  répond en JSON avec la forme `{"records": [{"fields": {...}}]}` — sinon
+  ajuster `app/anfr_client.py::fetch_nearby_sites`.
 - **Fichier Excel FTTO** : fournir un exemple réel pour caler les noms de
   colonnes exacts dans `app/ftto.py`.
 - **Rapports d'un autre prestataire ou d'un audit Adista non "Prévisite

@@ -53,16 +53,23 @@ STARLINK_UNFAVORABLE_STORE_TYPES = ["city", "express", "contact", "proximité"]
 # --- APIs externes ----------------------------------------------------------
 BAN_GEOCODE_URL = "https://api-adresse.data.gouv.fr/search/"
 
-# API Open Data ANFR (portail "data4C", format OpenDataSoft Explore v2.1).
-# Le nom exact du dataset radio doit être vérifié une fois l'accès réseau
-# disponible (voir README section ANFR) ; à défaut il peut être surchargé
-# via la variable d'environnement ANFR_DATASET_ID.
-ANFR_BASE_URL = "https://data.anfr.fr/d4c/api/explore/v2.1/catalog/datasets"
-ANFR_DATASET_ID = "observatoire_2g_3g_4g_par_site"
+# API Open Data ANFR ("d4c", API "records" v2.0). Endpoint et resource_id
+# confirmés à partir d'un appel réel et fonctionnel observé dans un projet
+# tiers open-source (RealTux678/Generateur_ANFR, java/A_ANFR_Downloader.java) :
+#   https://data.anfr.fr/d4c/api/records/2.0/downloadfile/?format=csv
+#     &refine.generation=4G&refine.generation=5G
+#     &resource_id=88ef0887-6b0f-4d3f-8545-6d64c8f597da
+# resource_id = dataset "observatoire_2g_3g_4g" (sites radio 2G/3G/4G/5G).
+# Le endpoint utilisé ici (.../records/2.0/search/) suppose que l'API expose
+# un équivalent JSON filtrable par géolocalisation au même endpoint que le
+# téléchargement CSV ci-dessus (convention "records/2.0" standard) ; à
+# confirmer avec un accès réseau réel (voir README, section ANFR) — mais
+# resource_id et noms de champs ci-dessous sont vérifiés, pas devinés.
+ANFR_BASE_URL = "https://data.anfr.fr/d4c/api/records/2.0"
+ANFR_RESOURCE_ID = "88ef0887-6b0f-4d3f-8545-6d64c8f597da"
 
-# Mapping des libellés exploitant tels qu'ils apparaissent dans le jeu de
-# données ANFR vers nos clés internes. À ajuster une fois le schéma réel
-# vérifié (voir README).
+# Mapping des libellés exploitant tels qu'ils apparaissent dans le champ
+# adm_lb_nom du dataset ANFR vers nos clés internes.
 ANFR_OPERATOR_LABELS = {
     "orange": ["ORANGE"],
     "sfr": ["SFR"],
@@ -70,10 +77,11 @@ ANFR_OPERATOR_LABELS = {
     "free": ["FREE MOBILE", "FREE"],
 }
 
-# Noms de champs du dataset ANFR (à vérifier/ajuster une fois l'accès réseau
-# disponible : voir README, section "Vérifier le schéma ANFR"). Peuvent être
-# surchargés sans toucher au code appelant.
+# Noms de champs du dataset ANFR "observatoire_2g_3g_4g", vérifiés à partir
+# du même projet tiers (mapping CSV -> champs dans A_Generateur_ANFR.java) :
+# adm_lb_nom (opérateur), coordonnees ("lat, lon" en une seule chaîne),
+# generation (2G/3G/4G/5G), sta_nm_anfr (identifiant de station).
 ANFR_FIELD_OPERATOR = "adm_lb_nom"
-ANFR_FIELD_LAT = "lat"
-ANFR_FIELD_LON = "lon"
-ANFR_FIELD_GENERATION = "generation"  # ex: valeur contenant "4G"
+ANFR_FIELD_COORDONNEES = "coordonnees"
+ANFR_FIELD_GENERATION = "generation"
+ANFR_FIELD_STATION_ID = "sta_nm_anfr"
