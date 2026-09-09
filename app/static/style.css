@@ -94,7 +94,6 @@ button[type="submit"] {
   margin-bottom: 24px;
 }
 .reco-OK { border-left-color: var(--good); }
-.reco-Investiguer { border-left-color: var(--medium); }
 .reco-4G_autre_operateur { border-left-color: var(--accent); }
 .reco-FTTO { border-left-color: var(--accent); }
 .reco-Starlink { border-left-color: #7c3aed; }
@@ -110,15 +109,22 @@ button[type="submit"] {
   border-radius: 999px;
   margin-bottom: 8px;
 }
+.badge-warn {
+  background: #fef3c7;
+  color: #92400e;
+  margin-left: 6px;
+}
 
-.reco h2 { margin: 4px 0 8px; font-size: 18px; }
+.reco h2 { margin: 4px 0 8px; font-size: 18px; overflow-wrap: anywhere; }
 .details { margin: 8px 0 0; padding-left: 20px; color: var(--muted); font-size: 14px; }
-.note { font-size: 13px; color: var(--muted); font-style: italic; }
+.details li { overflow-wrap: anywhere; margin-bottom: 4px; }
+.note { font-size: 13px; color: var(--muted); font-style: italic; overflow-wrap: anywhere; }
 
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 16px;
+  align-items: start;
 }
 
 .card {
@@ -126,12 +132,43 @@ button[type="submit"] {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 16px;
+  min-width: 0; /* empêche une carte de grille de forcer sa largeur sur du contenu long */
 }
 
 .card h3 { margin: 0 0 10px; font-size: 15px; }
 
-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 13px; }
-th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border); }
-th { color: var(--muted); font-weight: 500; width: 45%; }
+.table-scroll { overflow-x: auto; margin-bottom: 10px; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 10px;
+  font-size: 13px;
+  table-layout: fixed;
+}
+th, td {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+th { color: var(--muted); font-weight: 500; }
+
+/* Tableaux de relevés (RSRP/SNR/débit) : beaucoup de colonnes, mieux
+   servis par une largeur naturelle + défilement horizontal que par des
+   colonnes forcées trop étroites. */
+.readings-table-wrap { overflow-x: auto; margin-bottom: 10px; }
+.readings-table {
+  table-layout: auto;
+  font-size: 12px;
+  width: auto;
+  min-width: 100%;
+}
+.readings-table th, .readings-table td {
+  white-space: nowrap;
+  padding: 4px 8px;
+}
 
 .warn { color: var(--medium); }
+.reco-detail { font-weight: 600; }

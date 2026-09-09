@@ -11,10 +11,14 @@
   </header>
 
   <main>
+    {% set emplacement_labels = {'baie': 'Baie', 'exterieur': 'Extérieur', 'meilleur_emplacement': 'Meilleur endroit'} %}
     <a href="/" class="back-link">&larr; Nouvelle analyse</a>
 
     <section class="reco reco-{{ reco.technologie }}">
       <span class="badge">{{ reco.technologie.replace('_', ' ') }}</span>
+      {% if reco.investigation_suspectee %}
+        <span class="badge badge-warn">⚠ Vérifier l'installation</span>
+      {% endif %}
       <h2>{{ reco.resume }}</h2>
       {% if reco.operateur_recommande %}
         <p>Opérateur recommandé : <strong>{{ reco.operateur_recommande.upper() }}</strong>
@@ -42,6 +46,10 @@
           <tr><th>Code site</th><td>{{ mes.site_code or audit.site_code or '—' }}</td></tr>
           {% if geo %}
           <tr><th>Géocodage</th><td>{{ geo.label }} (score {{ '%.2f' % geo.score }})</td></tr>
+          <tr><th>Vue satellite</th>
+            <td><a href="https://www.google.com/maps?q={{ geo.lat }},{{ geo.lon }}&z=19&t=k" target="_blank" rel="noopener">
+              Ouvrir sur Google Maps (vérification toit Starlink)
+            </a></td></tr>
           {% else %}
           <tr><th>Géocodage</th><td class="warn">Adresse non géocodée</td></tr>
           {% endif %}
@@ -56,17 +64,21 @@
           <tr><th>Résultat intervention</th><td>{{ mes.resultat_intervention or '—' }}</td></tr>
         </table>
         {% if mes.lectures %}
-        <table>
-          <tr><th>Opérateur</th><th>RSRP</th><th>SNR</th><th>Qualité</th></tr>
+        <div class="readings-table-wrap">
+        <table class="readings-table">
+          <tr><th>Opérateur</th><th>Emplacement</th><th>RSRP</th><th>SNR</th><th>Débit ↓/↑</th><th>Qualité</th></tr>
           {% for l in mes.lectures %}
           <tr>
-            <td>{{ l.operateur }}</td>
+            <td>{{ l.operateur.upper() }}</td>
+            <td>{{ emplacement_labels.get(l.emplacement, l.emplacement) or '—' }}</td>
             <td>{{ l.rsrp_dbm if l.rsrp_dbm is not none else '—' }}</td>
             <td>{{ l.snr_db if l.snr_db is not none else '—' }}</td>
+            <td>{{ l.debit_down_mbps if l.debit_down_mbps is not none else '—' }} / {{ l.debit_up_mbps if l.debit_up_mbps is not none else '—' }} Mbps</td>
             <td>{{ l.qualite_signal or '—' }}</td>
           </tr>
           {% endfor %}
         </table>
+        </div>
         {% endif %}
       </div>
 
@@ -80,17 +92,21 @@
           <tr><th>Antenne extérieure autorisée</th><td>{{ audit.antenne_exterieure_autorisee if audit.antenne_exterieure_autorisee is not none else '—' }}</td></tr>
         </table>
         {% if audit.lectures %}
-        <table>
-          <tr><th>Opérateur</th><th>RSRP</th><th>SNR</th><th>Qualité</th></tr>
+        <div class="readings-table-wrap">
+        <table class="readings-table">
+          <tr><th>Opérateur</th><th>Emplacement</th><th>RSRP</th><th>SNR</th><th>Débit ↓/↑</th><th>Qualité</th></tr>
           {% for l in audit.lectures %}
           <tr>
-            <td>{{ l.operateur }}</td>
+            <td>{{ l.operateur.upper() }}</td>
+            <td>{{ emplacement_labels.get(l.emplacement, l.emplacement) or '—' }}</td>
             <td>{{ l.rsrp_dbm if l.rsrp_dbm is not none else '—' }}</td>
             <td>{{ l.snr_db if l.snr_db is not none else '—' }}</td>
+            <td>{{ l.debit_down_mbps if l.debit_down_mbps is not none else '—' }} / {{ l.debit_up_mbps if l.debit_up_mbps is not none else '—' }} Mbps</td>
             <td>{{ l.qualite_signal or '—' }}</td>
           </tr>
           {% endfor %}
         </table>
+        </div>
         {% endif %}
       </div>
       {% endif %}
@@ -101,9 +117,17 @@
           <p class="warn">Données ANFR indisponibles pour cette analyse.</p>
         {% elif anfr_summary %}
           <table>
-            <tr><th>Opérateur</th><th>Sites à proximité</th></tr>
+            <tr><th>Opérateur</th><th>Sites à proximité</th><th>Site le plus proche</th></tr>
             {% for s in anfr_summary %}
-            <tr><td>{{ s.operateur }}</td><td>{{ s.nb_sites }}</td></tr>
+            <tr>
+              <td>{{ s.operateur.upper() }}</td>
+              <td>{{ s.nb_sites }}</td>
+              <td>
+                {% if s.distance_min_m is not none %}
+                  {{ s.distance_min_m | round | int }} m{% if s.systeme %} ({{ s.systeme }}){% endif %}
+                {% else %}—{% endif %}
+              </td>
+            </tr>
             {% endfor %}
           </table>
         {% else %}
@@ -113,11 +137,51 @@
 
       <div class="card">
         <h3>Éligibilité FTTO</h3>
+        {% if ftto.offre_recommandee %}
+        <p class="reco-detail">
+          Offre recommandée : {{ ftto.offre_recommandee }}
+          {%- if ftto.prix_mensuel %} — {{ ftto.prix_mensuel }}{% endif %}
+        </p>
+        {% endif %}
         <table>
           <tr><th>Trouvé dans le fichier</th><td>{{ ftto.trouve }}</td></tr>
-          <tr><th>Éligible</th><td>{{ ftto.eligible if ftto.eligible is not none else 'Inconnu' }}</td></tr>
-          {% if ftto.detail %}<tr><th>Détail</th><td>{{ ftto.detail }}</td></tr>{% endif %}
+          <tr><th>Éligible</th><td>{{ ftto.eligible if ftto.eligible is not none else 'NC' }}</td></tr>
+          <tr><th>Détail</th><td>{{ ftto.detail or 'NC' }}</td></tr>
+          <tr><th>Multi PTO</th>
+            <td>
+              {% if ftto.multi_pto is not none %}
+                {{ 'OK' if ftto.multi_pto else 'KO' }} ({{ ftto.multi_pto_detail }})
+              {% else %}
+                NC{% if ftto.multi_pto_detail %} ({{ ftto.multi_pto_detail }}){% endif %}
+              {% endif %}
+            </td>
+          </tr>
         </table>
+        {% if ftto.offres_chiffrees %}
+        <table>
+          <tr><th>Offres éligibles (du moins cher au plus cher)</th><th>Prix</th></tr>
+          {% for o in ftto.offres_chiffrees %}
+          <tr class="{{ 'reco-detail' if loop.first else '' }}">
+            <td>{{ o.offre }}{% if loop.first %} ★{% endif %}</td>
+            <td>{{ o.prix_detail }}</td>
+          </tr>
+          {% endfor %}
+        </table>
+        {% endif %}
+        {% if ftto.offres_disponibles %}
+        <details>
+          <summary class="hint">Vue brute du fichier d'éligibilité</summary>
+          <table>
+            <tr><th>Colonne</th><th>Valeur</th></tr>
+            {% for nom, valeur in ftto.offres_disponibles.items() %}
+            <tr>
+              <td>{{ nom }}</td>
+              <td class="{{ 'warn' if valeur == 'NON' or not valeur else '' }}">{{ valeur or '—' }}</td>
+            </tr>
+            {% endfor %}
+          </table>
+        </details>
+        {% endif %}
       </div>
     </section>
   </main>

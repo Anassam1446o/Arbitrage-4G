@@ -22,6 +22,7 @@ class OperatorReading(BaseModel):
     debit_up_mbps: Optional[float] = None
     avec_antenne: Optional[bool] = None
     qualite_signal: Optional[str] = None  # "bon" | "moyen" | "mauvais"
+    emplacement: Optional[str] = None  # "baie" | "exterieur" | "meilleur_emplacement"
 
 
 class AuditReport(BaseModel):
@@ -62,17 +63,36 @@ class AnfrSiteSummary(BaseModel):
     operateur: str
     nb_sites: int
     distance_min_m: Optional[float] = None
+    systeme: Optional[str] = None  # ex: "LTE 800" — système du site le plus proche
+
+
+class FttoOffreChiffree(BaseModel):
+    offre: str
+    prix_eur: Optional[float] = None
+    prix_detail: str  # ex: "83 € HT/mois (palier 20 Mbps)", "sur devis", "prix non trouvé dans le BPU"
 
 
 class FttoEligibility(BaseModel):
     eligible: Optional[bool] = None
     trouve: bool = False
     detail: Optional[str] = None
+    offres_disponibles: dict[str, str] = {}  # nom de colonne -> offre proposée (ou "NON"), brut du fichier
+    multi_pto: Optional[bool] = None  # dérivé de la colonne "Multi PTO" (colonne O)
+    multi_pto_detail: Optional[str] = None
+    offres_eligibles_brutes: list[str] = []  # noms d'offres éligibles (colonnes opérateur), dédupliqués
+    offres_chiffrees: list[FttoOffreChiffree] = []  # triées du moins cher au plus cher
+    offre_recommandee: Optional[str] = None  # l'offre la moins chère parmi les éligibles
+    prix_mensuel: Optional[str] = None  # prix de l'offre recommandée (palier 20 Mbps fixe)
 
 
 class Recommendation(BaseModel):
-    technologie: str  # "4G_autre_operateur" | "FTTO" | "Starlink" | "Investiguer" | "OK"
+    technologie: str  # "4G_autre_operateur" | "FTTO" | "Starlink" | "OK"
     resume: str
     details: list[str] = []
     operateur_recommande: Optional[str] = None
     prestataire_recommande: Optional[str] = None
+    # Zone a priori couverte (audit/ANFR) mais signal mesuré mauvais : la
+    # recommandation ci-dessus reste une solution de contournement
+    # concrète, mais un problème d'installation est aussi possible et
+    # vaut la peine d'être vérifié sur site avant d'engager le changement.
+    investigation_suspectee: bool = False

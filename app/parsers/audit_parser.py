@@ -19,6 +19,7 @@ from typing import Optional
 
 from app.models import AuditReport, OperatorReading
 from app.parsers.common import (
+    enrich_adista_readings_with_ocr,
     extract_label_value_pairs,
     extract_line_value,
     extract_text,
@@ -54,7 +55,7 @@ def parse_audit(file_path: str) -> AuditReport:
     text = extract_text(file_path)
     provider = _detect_provider(text)
     if provider == "adista":
-        return _parse_adista_audit(text)
+        return _parse_adista_audit(file_path, text)
     return _parse_linkt_audit(file_path, text)
 
 
@@ -121,7 +122,7 @@ def _parse_linkt_audit(file_path: str, text: str) -> AuditReport:
     )
 
 
-def _parse_adista_audit(text: str) -> AuditReport:
+def _parse_adista_audit(file_path: str, text: str) -> AuditReport:
     site_code = extract_line_value(text, "Référence site client") or find_site_code(text)
     adresse = extract_line_value(text, "Adresse")
     resultat = extract_line_value(text, "Résultat de l'intervention")
@@ -138,6 +139,7 @@ def _parse_adista_audit(text: str) -> AuditReport:
             antenne_exterieure_autorisee = answer_match.group(1) == "OUI"
 
     lectures_dicts = find_qualitative_readings_by_operator(text)
+    lectures_dicts = enrich_adista_readings_with_ocr(file_path, lectures_dicts)
     lectures = [OperatorReading(**r) for r in lectures_dicts]
 
     antenne_preconisee = bool(

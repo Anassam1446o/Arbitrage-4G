@@ -4,6 +4,21 @@ Tous les seuils ci-dessous sont des valeurs télécom usuelles pour de la 4G LTE
 en attendant les seuils réels de Carrefour. Ajuste-les ici, rien d'autre à
 toucher dans le code pour les faire changer.
 """
+import os
+from pathlib import Path
+
+_APP_DIR = Path(__file__).resolve().parent
+
+# Fichier de suivi d'éligibilité FTTO, intégré à l'application (source
+# unique pour tous les sites, pas un upload par analyse). Remplacer ce
+# fichier et le committer pour le mettre à jour ; surchageable via la
+# variable d'environnement FTTO_FILE_PATH si le fichier est stocké ailleurs.
+FTTO_FILE_PATH = os.environ.get("FTTO_FILE_PATH", str(_APP_DIR / "data" / "ftto_eligibilite.csv"))
+
+# Grille tarifaire FTTO (BPU) : même principe, source intégrée. Palier
+# toujours pris à 20 Mbps quel que soit le débit réellement nécessaire
+# (consigne du porteur de projet), voir app/ftto_pricing.py.
+FTTO_PRICE_FILE_PATH = os.environ.get("FTTO_PRICE_FILE_PATH", str(_APP_DIR / "data" / "ftto_prix.xlsx"))
 
 # --- Seuils radio (LTE / 4G) --------------------------------------------
 # RSRP en dBm, SNR (SINR) en dB, débit en Mbps.
@@ -85,3 +100,4 @@ ANFR_FIELD_OPERATOR = "adm_lb_nom"
 ANFR_FIELD_COORDONNEES = "coordonnees"
 ANFR_FIELD_GENERATION = "generation"
 ANFR_FIELD_STATION_ID = "sta_nm_anfr"
+ANFR_FIELD_SYSTEM = "emr_lb_systeme"  # ex: "LTE 800" — même source que les champs ci-dessus

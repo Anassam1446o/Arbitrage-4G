@@ -20,6 +20,7 @@ from typing import Optional
 
 from app.models import MesReport, OperatorReading
 from app.parsers.common import (
+    enrich_adista_readings_with_ocr,
     extract_label_value_pairs,
     extract_line_value,
     extract_text,
@@ -57,7 +58,7 @@ def parse_mes(file_path: str) -> MesReport:
     if provider == "linkt":
         return _parse_linkt(file_path, text)
     if provider == "adista":
-        return _parse_adista(text)
+        return _parse_adista(file_path, text)
     return _parse_generic(text)
 
 
@@ -113,7 +114,7 @@ def _parse_linkt(file_path: str, text: str) -> MesReport:
     )
 
 
-def _parse_adista(text: str) -> MesReport:
+def _parse_adista(file_path: str, text: str) -> MesReport:
     site_code = extract_line_value(text, "Référence site client") or find_site_code(text)
     adresse = extract_line_value(text, "Adresse")
     resultat = extract_line_value(text, "Résultat de l'intervention")
@@ -131,15 +132,17 @@ def _parse_adista(text: str) -> MesReport:
         re.IGNORECASE,
     )
 
-    lectures = []
-    for operateur, qualite in zip(operators_tested, qualities):
-        lectures.append(
-            OperatorReading(
-                operateur=operateur.lower(),
-                qualite_signal=normalize_qualitative_verdict(qualite),
-                avec_antenne=True,
-            )
-        )
+    lectures_dicts = [
+        {
+            "operateur": operateur.lower(),
+            "qualite_signal": normalize_qualitative_verdict(qualite),
+            "avec_antenne": True,
+            "emplacement": "baie",  # seul emplacement testé lors d'une MES (routeur dans la baie)
+        }
+        for operateur, qualite in zip(operators_tested, qualities)
+    ]
+    lectures_dicts = enrich_adista_readings_with_ocr(file_path, lectures_dicts)
+    lectures = [OperatorReading(**r) for r in lectures_dicts]
 
     final_match = re.search(
         r"QUEL OPERATEUR A FINALEMENT ETE ACTIVE\s*\?\s*\n\s*(\w+)", text, re.IGNORECASE

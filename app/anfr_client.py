@@ -17,19 +17,24 @@ eux, sont vérifiés (pas devinés). Voir README, section ANFR.
 """
 from __future__ import annotations
 
+from math import asin, cos, radians, sin, sqrt
 from typing import Optional
 
 import requests
 
 from app.config import (
     ANFR_BASE_URL,
+    ANFR_FIELD_COORDONNEES,
     ANFR_FIELD_GENERATION,
     ANFR_FIELD_OPERATOR,
+    ANFR_FIELD_SYSTEM,
     ANFR_OPERATOR_LABELS,
     ANFR_RESOURCE_ID,
     ANFR_SEARCH_RADIUS_M,
 )
 from app.models import AnfrSiteSummary
+
+_EARTH_RADIUS_M = 6_371_000
 
 
 def _label_to_operator_key(label: str) -> Optional[str]:
@@ -38,6 +43,28 @@ def _label_to_operator_key(label: str) -> Optional[str]:
         if any(alias in label_up for alias in aliases):
             return key
     return None
+
+
+def _parse_coordonnees(raw) -> Optional[tuple[float, float]]:
+    """Le champ 'coordonnees' du dataset ANFR est une chaîne 'lat, lon'."""
+    if not raw:
+        return None
+    parts = str(raw).replace('"', "").split(",")
+    if len(parts) != 2:
+        return None
+    try:
+        return float(parts[0].strip()), float(parts[1].strip())
+    except ValueError:
+        return None
+
+
+def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Distance à vol d'oiseau entre deux points GPS, en mètres."""
+    p1, p2 = radians(lat1), radians(lat2)
+    dphi = radians(lat2 - lat1)
+    dlambda = radians(lon2 - lon1)
+    a = sin(dphi / 2) ** 2 + cos(p1) * cos(p2) * sin(dlambda / 2) ** 2
+    return 2 * _EARTH_RADIUS_M * asin(sqrt(a))
 
 
 def fetch_nearby_sites(
@@ -74,10 +101,17 @@ def fetch_nearby_sites(
     return [r.get("fields", {}) for r in records if isinstance(r, dict)]
 
 
-def summarize_by_operator(records: list[dict]) -> list[AnfrSiteSummary]:
+def summarize_by_operator(
+    records: list[dict], target_lat: Optional[float] = None, target_lon: Optional[float] = None
+) -> list[AnfrSiteSummary]:
     """Agrège les enregistrements bruts ANFR en nombre de sites par
-    opérateur (clé interne orange/sfr/bouygues/free)."""
+    opérateur (clé interne orange/sfr/bouygues/free). Si target_lat/lon
+    sont fournis, calcule aussi la distance du site le plus proche par
+    opérateur (pour justifier concrètement une recommandation, ex: "site
+    Bouygues à 340m")."""
     counts: dict[str, int] = {}
+    closest: dict[str, tuple[float, Optional[str]]] = {}
+
     for record in records:
         label = record.get(ANFR_FIELD_OPERATOR, "")
         operator_key = _label_to_operator_key(label)
@@ -85,10 +119,23 @@ def summarize_by_operator(records: list[dict]) -> list[AnfrSiteSummary]:
             continue
         counts[operator_key] = counts.get(operator_key, 0) + 1
 
-    return [
-        AnfrSiteSummary(operateur=op, nb_sites=count)
-        for op, count in sorted(counts.items(), key=lambda kv: -kv[1])
-    ]
+        if target_lat is None or target_lon is None:
+            continue
+        coords = _parse_coordonnees(record.get(ANFR_FIELD_COORDONNEES))
+        if coords is None:
+            continue
+        distance_m = haversine_m(target_lat, target_lon, coords[0], coords[1])
+        systeme = record.get(ANFR_FIELD_SYSTEM)
+        if operator_key not in closest or distance_m < closest[operator_key][0]:
+            closest[operator_key] = (distance_m, systeme)
+
+    summaries = []
+    for op, count in sorted(counts.items(), key=lambda kv: -kv[1]):
+        distance_m, systeme = closest.get(op, (None, None))
+        summaries.append(
+            AnfrSiteSummary(operateur=op, nb_sites=count, distance_min_m=distance_m, systeme=systeme)
+        )
+    return summaries
 
 
 def get_radio_environment(
@@ -104,4 +151,4 @@ def get_radio_environment(
     records = fetch_nearby_sites(lat, lon, radius_m)
     if not records:
         return [], False
-    return summarize_by_operator(records), True
+    return summarize_by_operator(records, lat, lon), True

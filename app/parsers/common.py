@@ -166,10 +166,10 @@ _SINGLE_SNR_RE = re.compile(
     r"(?:valeur\s+)?s[in]nr[^\n\d-]{0,40}?(-?\d+(?:[.,]\d+)?)", re.IGNORECASE
 )
 _DEBIT_DOWN_RE = re.compile(
-    r"(?:débit\s+descendant|réception|download)[^\n\d]{0,20}?(\d+(?:[.,]\d+)?)\s*mbit", re.IGNORECASE
+    r"(?:débit\s+descendant|réception|download)[^\n\d]{0,20}?(\d+(?:[.,]\d+)?)\s*mb", re.IGNORECASE
 )
 _DEBIT_UP_RE = re.compile(
-    r"(?:débit\s+montant|envoi|upload)[^\n\d]{0,20}?(\d+(?:[.,]\d+)?)\s*mbit", re.IGNORECASE
+    r"(?:débit\s+montant|envoi|upload)[^\n\d]{0,20}?(\d+(?:[.,]\d+)?)\s*mb", re.IGNORECASE
 )
 
 _SITE_CODE_RE = re.compile(r"\bFR[-]?[A-Z]{2}\d{5}[_\-][A-Z0-9_\-]+", re.IGNORECASE)
@@ -209,21 +209,34 @@ def find_operator_metrics_from_pairs(pairs: dict[str, str]) -> list[dict]:
 # systématiquement, ce qui évite les faux positifs sur des mots du
 # texte libre comme "...ou bien faut-il...").
 _QUESTION_OPERATOR_RE = re.compile(
-    r"QUALIFERIEZ-VOUS LE SIGNAL\s+(BOUYGUES|ORANGE|SFR)", re.IGNORECASE
+    r"QUALIFERIEZ-VOUS LE SIGNAL\s+(BOUYGUES|ORANGE|SFR)([^?]{0,80})\?", re.IGNORECASE
 )
 _VERDICT_TOKEN_RE = re.compile(r"\b(EXCELLENT|BON|BIEN|MOYEN|MAUVAIS)\b")
 _VERDICT_SEARCH_WINDOW = 800
 
 
+def _classify_emplacement(raw: str) -> Optional[str]:
+    text = normalize_label(raw)
+    if not text:
+        return None
+    if "exterieur" in text:
+        return "exterieur"
+    if "meilleur" in text:
+        return "meilleur_emplacement"
+    if "baie" in text:
+        return "baie"
+    return None
+
+
 def find_qualitative_readings_by_operator(text: str) -> list[dict]:
     """Cherche les verdicts qualitatifs explicitement associés à un
-    opérateur (format audit/MES Adista, un verdict par opérateur et par
-    emplacement testé : baie, extérieur, meilleur emplacement trouvé)."""
+    opérateur ET à un emplacement (format audit Adista : baie, extérieur
+    du bâtiment, meilleur emplacement trouvé en magasin)."""
     from app.signal_quality import normalize_qualitative_verdict
 
     readings = []
     for match in _QUESTION_OPERATOR_RE.finditer(text):
-        operator_raw = match.group(1)
+        operator_raw, emplacement_raw = match.groups()
         verdict_match = _VERDICT_TOKEN_RE.search(
             text, match.end(), match.end() + _VERDICT_SEARCH_WINDOW
         )
@@ -234,6 +247,7 @@ def find_qualitative_readings_by_operator(text: str) -> list[dict]:
             {
                 "operateur": operator,
                 "qualite_signal": normalize_qualitative_verdict(verdict_match.group(1)),
+                "emplacement": _classify_emplacement(emplacement_raw),
             }
         )
     return readings
@@ -302,3 +316,139 @@ def find_address(text: str) -> Optional[str]:
         text,
     )
     return re.sub(r"\s+", " ", match.group(1)).strip() if match else None
+
+
+# --- OCR (rapports Adista) -------------------------------------------------
+#
+# Les valeurs RSRP/SINR/RSSI/RSRQ des rapports Adista ne sont visibles que
+# sur des captures d'écran photographiées (pas du texte natif du PDF, cf.
+# docstring de mes_parser.py). L'OCR ci-dessous les récupère en best-effort,
+# uniquement en complément du verdict qualitatif déjà extrait du texte natif
+# (jamais à la place : si l'OCR se trompe sur un chiffre, la décision finale
+# reste basée sur le verdict qualitatif saisi par le technicien).
+#
+# Dégradation gracieuse : si PyMuPDF/pytesseract ne sont pas installés, ou
+# si le moteur Tesseract OCR (dépendance système, pas seulement Python)
+# n'est pas installé sur la machine, ces fonctions renvoient simplement des
+# résultats vides sans lever d'erreur — voir README pour l'installer.
+
+_OCR_OPERATOR_RE = re.compile(r"\b(BOUYGUES|ORANGE|SFR)\b", re.IGNORECASE)
+
+
+def extract_ocr_text_per_page(pdf_path: str) -> dict[int, str]:
+    """OCR des images intégrées dans un PDF, page par page. Renvoie {} si
+    l'OCR n'est pas disponible (dépendances manquantes)."""
+    try:
+        import io
+
+        import fitz  # PyMuPDF
+        import pytesseract
+        from PIL import Image
+    except ImportError:
+        return {}
+
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception:
+        return {}
+
+    results: dict[int, str] = {}
+    try:
+        for page_index in range(len(doc)):
+            page = doc[page_index]
+            texts = []
+            for img in page.get_images(full=True):
+                try:
+                    base_image = doc.extract_image(img[0])
+                    image = Image.open(io.BytesIO(base_image["image"]))
+                    ocr_text = pytesseract.image_to_string(image)
+                except Exception:
+                    continue  # image illisible, ou Tesseract non installé sur la machine
+                if ocr_text.strip():
+                    texts.append(ocr_text)
+            if texts:
+                results[page_index] = "\n".join(texts)
+    finally:
+        doc.close()
+    return results
+
+
+def enrich_adista_readings_with_ocr(pdf_path: str, lectures: list[dict]) -> list[dict]:
+    """Complète (in place, sur une copie) les relevés qualitatifs Adista
+    avec les valeurs RSRP/SNR lues par OCR sur les captures d'écran, en
+    suivant le même principe que le texte natif : l'opérateur et
+    l'emplacement "en cours" sont déterminés page par page à partir du
+    texte natif qui précède chaque capture d'écran."""
+    try:
+        import fitz
+    except ImportError:
+        return lectures
+
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception:
+        return lectures
+
+    ocr_per_page = extract_ocr_text_per_page(pdf_path)
+    if not ocr_per_page:
+        doc.close()
+        return lectures
+
+    index_by_key: dict[tuple[str, Optional[str]], int] = {
+        (r["operateur"], r.get("emplacement")): i for i, r in enumerate(lectures)
+    }
+    lectures = [dict(r) for r in lectures]
+
+    current_operator: Optional[str] = None
+    current_emplacement: Optional[str] = None
+    try:
+        for page_index in range(len(doc)):
+            page_text = doc[page_index].get_text()
+
+            op_match = _OCR_OPERATOR_RE.search(page_text)
+            if op_match:
+                current_operator = _OPERATOR_ALIASES.get(
+                    op_match.group(1).lower(), op_match.group(1).lower()
+                )
+            emplacement = _classify_emplacement(page_text)
+            if emplacement:
+                current_emplacement = emplacement
+
+            ocr_text = ocr_per_page.get(page_index)
+            if not ocr_text or not current_operator:
+                continue
+
+            rsrp = find_single_rsrp(ocr_text)
+            snr = find_single_snr(ocr_text)
+            debit_down = find_debit_down(ocr_text)
+            debit_up = find_debit_up(ocr_text)
+            if rsrp is None and snr is None and debit_down is None and debit_up is None:
+                continue
+
+            key = (current_operator, current_emplacement)
+            if key in index_by_key:
+                entry = lectures[index_by_key[key]]
+                for field, value in (
+                    ("rsrp_dbm", rsrp),
+                    ("snr_db", snr),
+                    ("debit_down_mbps", debit_down),
+                    ("debit_up_mbps", debit_up),
+                ):
+                    if entry.get(field) is None:
+                        entry[field] = value
+            else:
+                lectures.append(
+                    {
+                        "operateur": current_operator,
+                        "emplacement": current_emplacement,
+                        "rsrp_dbm": rsrp,
+                        "snr_db": snr,
+                        "debit_down_mbps": debit_down,
+                        "debit_up_mbps": debit_up,
+                    }
+                )
+                index_by_key[key] = len(lectures) - 1
+    finally:
+        doc.close()
+
+    return lectures

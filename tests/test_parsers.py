@@ -28,6 +28,7 @@ def test_parse_mes_adista():
     readings = {r.operateur: r for r in mes.lectures}
     assert readings["bouygues"].qualite_signal == "mauvais"
     assert readings["orange"].qualite_signal == "mauvais"
+    assert readings["bouygues"].emplacement == "baie"
 
 
 def test_parse_audit_linkt():
@@ -50,3 +51,11 @@ def test_parse_audit_adista():
     verdicts = [r.qualite_signal for r in audit.lectures]
     assert verdicts.count("mauvais") == 4
     assert verdicts.count("moyen") == 2
+
+    by_key = {(r.operateur, r.emplacement): r.qualite_signal for r in audit.lectures}
+    assert by_key[("bouygues", "baie")] == "mauvais"
+    assert by_key[("bouygues", "exterieur")] == "moyen"
+    assert by_key[("bouygues", "meilleur_emplacement")] == "mauvais"
+    assert by_key[("orange", "baie")] == "mauvais"
+    assert by_key[("orange", "exterieur")] == "moyen"
+    assert by_key[("orange", "meilleur_emplacement")] == "mauvais"

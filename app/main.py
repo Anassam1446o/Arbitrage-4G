@@ -14,8 +14,9 @@ from app import config
 from app.anfr_client import get_radio_environment
 from app.decision_engine import arbitrate
 from app.ftto import check_eligibility
+from app.ftto_pricing import build_priced_offers
 from app.geocoding import geocode_address
-from app.models import AuditReport, FttoEligibility, MesReport
+from app.models import AuditReport, MesReport
 from app.parsers.audit_parser import parse_audit
 from app.parsers.mes_parser import parse_mes
 
@@ -44,14 +45,12 @@ async def analyser(
     request: Request,
     fichier_audit: UploadFile = File(None),
     fichier_mes: UploadFile = File(None),
-    fichier_ftto: UploadFile = File(None),
     toit_starlink: str = Form("inconnu"),
 ):
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
         audit_path = _save_upload(fichier_audit, tmp_dir)
         mes_path = _save_upload(fichier_mes, tmp_dir)
-        ftto_path = _save_upload(fichier_ftto, tmp_dir)
 
         if not mes_path:
             return templates.TemplateResponse(
@@ -70,10 +69,10 @@ async def analyser(
         if geo:
             anfr_summary, anfr_available = get_radio_environment(geo.lat, geo.lon)
 
-        if ftto_path:
-            ftto = check_eligibility(ftto_path, adresse=adresse, site_code=mes.site_code or audit.site_code)
-        else:
-            ftto = FttoEligibility(eligible=None, trouve=False, detail="Aucun fichier FTTO fourni pour cette analyse.")
+        ftto = check_eligibility(
+            config.FTTO_FILE_PATH, adresse=adresse, site_code=mes.site_code or audit.site_code
+        )
+        ftto = build_priced_offers(ftto, config.FTTO_PRICE_FILE_PATH)
 
         toit_map = {"oui": True, "non": False, "inconnu": None}
         toit_valeur = toit_map.get(toit_starlink, None)

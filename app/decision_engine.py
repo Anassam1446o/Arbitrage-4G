@@ -2,21 +2,28 @@
 en une recommandation d'arbitrage 4G.
 
 Rappel des règles métier (cf. échanges avec le porteur du projet) :
+- Ces sites sont envoyés au moteur PARCE QUE leur 4G est déjà mauvaise :
+  l'objectif est toujours de trouver une solution de contournement
+  concrète (4G autre opérateur / FTTO / Starlink) — jamais de laisser un
+  dossier sans recommandation actionnable.
 - La 4G est toujours un lien de secours d'une FTTH déjà en place : on ne
   recommande jamais de FTTH.
 - Opérateurs jamais utilisés : Free (aucun partenariat Linkt/Adista).
 - Si un opérateur donne un signal correct en MES : pas d'arbitrage, on
-  garde ce lien.
+  garde ce lien (seul cas où le verdict n'est pas une des 3 technos).
 - Si tous les opérateurs testés sont mauvais/moyens mais que l'audit ou
-  l'environnement ANFR indique une zone a priori bien couverte : suspicion
-  d'un problème d'installation (pose d'antenne, câble, choix d'opérateur)
-  plutôt qu'un vrai problème de couverture -> recommandation
-  "Investiguer" plutôt qu'un changement de technologie.
-- Sinon (zone réellement mauvaise) : tenter un autre opérateur 4G
-  disponible via le prestataire (Linkt : Orange/SFR natifs, Bouygues en
-  option ; Adista : Orange/Bouygues natifs, SFR en option), sinon FTTO si
-  éligible, sinon Starlink (sous réserve du critère toit dégagé +
-  propriété du magasin).
+  l'environnement ANFR indique une zone a priori bien couverte : on
+  calcule quand même une recommandation concrète, mais on signale en plus
+  (investigation_suspectee) qu'un problème d'installation (pose d'antenne,
+  câble, choix d'opérateur) est possible et vaut la peine d'être vérifié
+  avant d'engager le changement.
+- La recommandation d'un autre opérateur 4G est justifiée par
+  l'environnement radio ANFR (site le plus proche, distance, système) et
+  limitée aux opérateurs disponibles via le prestataire (Linkt :
+  Orange/SFR natifs, Bouygues en option ; Adista : Orange/Bouygues
+  natifs, SFR en option), sinon FTTO si éligible, sinon Starlink (sous
+  réserve du critère toit dégagé + propriété du magasin — sans quoi
+  Starlink reste la recommandation par défaut avec un avertissement).
 """
 from __future__ import annotations
 
@@ -94,25 +101,52 @@ def _candidate_pool(prestataire: Optional[str]) -> tuple[list[str], Optional[str
     return pool, extra
 
 
-def _rank_by_anfr(operators: list[str], anfr_summary: list[AnfrSiteSummary]) -> list[str]:
-    anfr_map = {s.operateur: s.nb_sites for s in anfr_summary}
-    return sorted(operators, key=lambda op: -anfr_map.get(op, 0))
+def _anfr_map(anfr_summary: list[AnfrSiteSummary]) -> dict[str, AnfrSiteSummary]:
+    return {s.operateur: s for s in anfr_summary}
+
+
+def _rank_by_anfr(operators: list[str], anfr: dict[str, AnfrSiteSummary]) -> list[str]:
+    def sort_key(op: str):
+        summary = anfr.get(op)
+        if summary and summary.distance_min_m is not None:
+            return (0, summary.distance_min_m)
+        if summary and summary.nb_sites:
+            return (1, -summary.nb_sites)
+        return (2, 0)
+
+    return sorted(operators, key=sort_key)
+
+
+def _anfr_justification(op: str, anfr: dict[str, AnfrSiteSummary]) -> Optional[str]:
+    summary = anfr.get(op)
+    if not summary:
+        return f"Aucun site {op.upper()} recensé par l'ANFR dans la zone de recherche (à vérifier manuellement)."
+    if summary.distance_min_m is not None:
+        systeme_txt = f", {summary.systeme}" if summary.systeme else ""
+        return (
+            f"Justification ANFR : site {op.upper()} le plus proche à {round(summary.distance_min_m)} m"
+            f"{systeme_txt} ({summary.nb_sites} site(s) {op.upper()} recensé(s) dans la zone)."
+        )
+    return f"Justification ANFR : {summary.nb_sites} site(s) {op.upper()} recensé(s) dans la zone (distance non calculée)."
 
 
 def _find_alternative_operator(
     mes: MesReport, verdicts: dict[str, str], anfr_summary: list[AnfrSiteSummary]
-) -> tuple[Optional[str], Optional[str]]:
+) -> tuple[Optional[str], list[str]]:
     pool, extra = _candidate_pool(mes.prestataire)
     non_testes = [op for op in pool if op not in verdicts]
-    non_testes = _rank_by_anfr(non_testes, anfr_summary)
+    anfr = _anfr_map(anfr_summary)
+    non_testes = _rank_by_anfr(non_testes, anfr)
     if not non_testes:
-        return None, None
+        return None, []
+
     candidat = non_testes[0]
-    prestataire_reco = mes.prestataire
-    note = None
+    notes = [_anfr_justification(candidat, anfr)]
     if candidat == extra:
-        note = f"opérateur '{extra}' disponible via {mes.prestataire} sur demande spécifique (hors offre standard à 2 HNO)."
-    return candidat, note
+        notes.append(
+            f"Opérateur '{extra}' disponible via {mes.prestataire} sur demande spécifique (hors offre standard à 2 HNO)."
+        )
+    return candidat, notes
 
 
 def arbitrate(
@@ -139,43 +173,47 @@ def arbitrate(
             operateur_recommande=meilleur_operateur,
         )
 
+    # Aucun opérateur testé n'est satisfaisant : on cherche une solution de
+    # contournement concrète dans tous les cas. Si la zone semble a priori
+    # couverte (audit/ANFR), on garde le diagnostic "problème d'installation
+    # possible" comme avertissement, sans jamais s'arrêter là.
     zone_couverte, raisons_zone = _zone_semble_couverte(audit, anfr_summary, anfr_available, set(verdicts))
-
+    details = list(raisons_zone) + [f"{op} : {v}" for op, v in verdicts.items()]
     if zone_couverte:
-        details = list(raisons_zone) + [f"{op} : {v}" for op, v in verdicts.items()]
         details.append(
-            "Pistes à vérifier sur site : pose d'antenne non conforme (faux-plafond, sous-sol, "
+            "Pistes à vérifier sur site en parallèle : pose d'antenne non conforme (faux-plafond, sous-sol, "
             "mauvaise orientation), déperdition de signal sur un câble coaxial trop long ou mal serti, "
             "antenne posée en intérieur au lieu d'extérieur, connecteur défectueux."
         )
-        return Recommendation(
-            technologie="Investiguer",
-            resume="La zone semble a priori couverte en 4G (audit et/ou ANFR) mais le signal mesuré en MES "
-            "reste mauvais : suspicion d'un problème d'installation plutôt qu'un vrai problème de couverture.",
-            details=details,
-        )
+    avertissement = (
+        "⚠ La zone semble a priori couverte en 4G (audit et/ou ANFR) : un problème d'installation est possible, "
+        "à vérifier sur site en parallèle de la recommandation ci-dessous. "
+        if zone_couverte
+        else ""
+    )
 
-    candidat_operateur, note_candidat = _find_alternative_operator(mes, verdicts, anfr_summary)
+    candidat_operateur, notes_candidat = _find_alternative_operator(mes, verdicts, anfr_summary)
     if candidat_operateur:
-        details = list(raisons_zone) + [f"{op} : {v}" for op, v in verdicts.items()]
-        if note_candidat:
-            details.append(note_candidat)
+        details.extend(notes_candidat)
         return Recommendation(
             technologie="4G_autre_operateur",
-            resume=f"Aucun opérateur testé n'est satisfaisant : tester {candidat_operateur.upper()}, non testé lors de cette MES.",
+            resume=f"{avertissement}Recommandation : tester {candidat_operateur.upper()}, non testé lors de cette MES.",
             details=details,
             operateur_recommande=candidat_operateur,
             prestataire_recommande=mes.prestataire,
+            investigation_suspectee=zone_couverte,
         )
 
-    details = list(raisons_zone) + [f"{op} : {v}" for op, v in verdicts.items()]
-
     if ftto.eligible:
+        offre_txt = f" ({ftto.offre_recommandee})" if ftto.offre_recommandee else ""
+        prix_txt = f" — {ftto.prix_mensuel}" if ftto.prix_mensuel else ""
         details.append(ftto.detail or "Site trouvé éligible dans le fichier FTTO fourni.")
         return Recommendation(
             technologie="FTTO",
-            resume="Aucun opérateur 4G ne convient et le site est éligible FTTO : basculer le lien de secours sur FTTO.",
+            resume=f"{avertissement}Aucun opérateur 4G disponible ne convient et le site est éligible FTTO"
+            f"{offre_txt}{prix_txt} : basculer le lien de secours sur FTTO.",
             details=details,
+            investigation_suspectee=zone_couverte,
         )
 
     if ftto.eligible is None:
@@ -185,30 +223,23 @@ def arbitrate(
     else:
         details.append(ftto.detail or "Site non éligible FTTO d'après le fichier fourni.")
 
-    if toit_degage_et_proprietaire is True:
-        details.append("Critère toit dégagé + propriété du magasin confirmé : Starlink installable.")
-        return Recommendation(
-            technologie="Starlink",
-            resume=f"Aucune 4G alternative ni FTTO viable : recommandation Starlink ({config.STARLINK_MONTHLY_PRICE_EUR} €/mois).",
-            details=details,
-        )
-
     if toit_degage_et_proprietaire is False:
         details.append(
             "Critère toit dégagé + propriété du magasin NON rempli : Starlink non installable en l'état "
-            "(fréquent sur Carrefour City/Express en centre-ville ou copropriété)."
+            "(fréquent sur Carrefour City/Express en centre-ville ou copropriété) — solution à valider "
+            "au cas par cas (mât, toit voisin, extension de bail...) avant de confirmer."
         )
-        return Recommendation(
-            technologie="Investiguer",
-            resume="Aucune option standard (4G alternative, FTTO, Starlink) n'est viable en l'état : cas à traiter au cas par cas.",
-            details=details,
+    elif toit_degage_et_proprietaire is True:
+        details.append("Critère toit dégagé + propriété du magasin confirmé : Starlink installable.")
+    else:
+        details.append(
+            "Critère Starlink (toit dégagé + propriété du magasin) non renseigné : à confirmer manuellement avant validation."
         )
 
-    details.append(
-        "Critère Starlink (toit dégagé + propriété du magasin) non renseigné : à confirmer manuellement avant validation."
-    )
     return Recommendation(
         technologie="Starlink",
-        resume=f"Recommandation par défaut : Starlink ({config.STARLINK_MONTHLY_PRICE_EUR} €/mois), sous réserve de confirmation du critère toit.",
+        resume=f"{avertissement}Aucune 4G alternative ni FTTO viable : recommandation Starlink "
+        f"({config.STARLINK_MONTHLY_PRICE_EUR} €/mois).",
         details=details,
+        investigation_suspectee=zone_couverte,
     )

@@ -8,3 +8,12 @@ pandas==2.2.3
 openpyxl==3.1.5
 requests==2.32.3
 pydantic==2.9.2
+
+# OCR best-effort des captures d'écran dans les rapports Adista (RSRP/SNR
+# affichés sur une photo, pas en texte natif du PDF). Optionnel : si
+# Tesseract OCR (moteur, pas juste ces paquets Python) n'est pas installé
+# sur la machine, l'app continue de fonctionner avec les verdicts
+# qualitatifs seuls (voir README, section OCR).
+PyMuPDF==1.24.10
+pytesseract==0.3.13
+Pillow==10.4.0

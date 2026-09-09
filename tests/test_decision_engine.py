@@ -43,11 +43,15 @@ def test_falls_back_to_starlink_when_no_operator_left_and_no_ftto():
     assert reco.technologie == "Starlink"
 
 
-def test_suspects_installation_issue_when_zone_looks_covered():
+def test_suspects_installation_issue_but_still_gives_concrete_recommendation():
     audit = parse_audit(str(FIXTURES / "audit_linkt_sample.pdf"))
     mes = parse_mes(str(FIXTURES / "mes_linkt_sample.pdf"))
     from app.models import AnfrSiteSummary
 
     anfr_summary = [AnfrSiteSummary(operateur="sfr", nb_sites=5), AnfrSiteSummary(operateur="orange", nb_sites=3)]
     reco = arbitrate(audit, mes, anfr_summary, anfr_available=True, ftto=_no_ftto())
-    assert reco.technologie == "Investiguer"
+    # Le moteur tranche toujours vers une des 3 technos concrètes...
+    assert reco.technologie == "4G_autre_operateur"
+    assert reco.operateur_recommande == "bouygues"
+    # ...tout en signalant qu'un problème d'installation est possible.
+    assert reco.investigation_suspectee is True
