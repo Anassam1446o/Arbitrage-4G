@@ -14,6 +14,6 @@ pydantic==2.9.2
 # Tesseract OCR (moteur, pas juste ces paquets Python) n'est pas installé
 # sur la machine, l'app continue de fonctionner avec les verdicts
 # qualitatifs seuls (voir README, section OCR).
-PyMuPDF==1.24.10
+PyMuPDF==1.24.13
 pytesseract==0.3.13
 Pillow==10.4.0
